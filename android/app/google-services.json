@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "392406839288",
+    "project_id": "bio-irc",
+    "storage_bucket": "bio-irc.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:392406839288:android:a968d5c4c972cfc35a300d",
+        "android_client_info": {
+          "package_name": "com.example.bioirc"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB6ypdrIpJAbzjv3p8FN8-ZAkXH8G_SBBc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
