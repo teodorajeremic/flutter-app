@@ -16,6 +16,23 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
   String? _filePath;
   String? _statusMessage;
 
+  @override
+  void initState() {
+    super.initState();
+    _loadLastUploadedFile();
+  }
+
+  Future<void> _loadLastUploadedFile() async {
+    final prefs = await SharedPreferences.getInstance();
+    final lastFile = prefs.getString('last_uploaded_file');
+    if (lastFile != null) {
+      setState(() {
+        _filePath = lastFile;
+        _statusMessage = "Last uploaded file: $lastFile";
+      });
+    }
+  }
+
   // biranje CSV fajla i slanje direktno na backend sa header-ima
   Future<void> _pickAndUploadFile() async {
     setState(() {
@@ -61,7 +78,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
 
     try {
       final prefs = await SharedPreferences.getInstance();
-      final patientId = prefs.getInt('patient_id') ?? 1;
+      final patientId = prefs.getInt('patient_id');
 
       final deviceInfo = DeviceInfoPlugin();
       String deviceId = '';
@@ -83,7 +100,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
       request.headers.addAll({
         "Content-Type": "application/json",
         "Accept": "application/json",
-       // "pacijent_id": patientId.toString(),
+        //"pacijent_id": patientId.toString(),
         "pacijent": "1",
         "device": deviceId,
       });
@@ -92,10 +109,14 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
       final responseBody = await response.stream.bytesToString();
 
       if (response.statusCode == 200 || response.statusCode == 201) {
+        final fileName = file.path.split('/').last; // samo naziv fajla
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('last_uploaded_file', fileName);
+
         setState(() {
           _statusMessage = "CSV successfully uploaded!";
         });
-      } else {
+      }else {
         setState(() {
           _statusMessage = "Error ${response.statusCode}: $responseBody";
         });

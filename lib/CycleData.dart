@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:intl/intl.dart';
 
 class FilterByDate extends StatefulWidget {
   const FilterByDate({super.key});
@@ -27,9 +28,10 @@ class _FilterByDateState extends State<FilterByDate> {
   bool loading = true;
   List<CycleData> cycles = [];
 
-  /// -------------------------------
-  /// MAPIRANJE BACKEND KLJUČEVA → LABELA
-  /// -------------------------------
+  DateTime? filterStartDate;
+  DateTime? filterEndDate;
+  final DateFormat displayFormat = DateFormat('yyyy-MM-dd');
+
   final Map<String, String> fieldLabels = {
     "cycle_start_time": "Cycle start time",
     "cycle_end_time": "Cycle end time",
@@ -53,9 +55,6 @@ class _FilterByDateState extends State<FilterByDate> {
     "sleep_debt_min": "Sleep debt (min)",
   };
 
-  /// -------------------------------
-  /// IKONICE PO POLJIMA
-  /// -------------------------------
   final Map<String, IconData> fieldIcons = {
     'Cycle start time': Icons.play_arrow,
     'Cycle end time': Icons.stop,
@@ -79,9 +78,6 @@ class _FilterByDateState extends State<FilterByDate> {
     'Sleep debt (min)': Icons.warning,
   };
 
-  /// -------------------------------
-  /// BOJE PO POLJIMA
-  /// -------------------------------
   final Map<String, Color> fieldColors = {
     'Resting heart rate (bpm)': Colors.red,
     'Heart rate variability (ms)': Colors.blue,
@@ -109,8 +105,10 @@ class _FilterByDateState extends State<FilterByDate> {
 
   Future<void> _loadFromBackend() async {
     try {
+      setState(() => loading = true);
+
       final prefs = await SharedPreferences.getInstance();
-      final patientId = prefs.getString('patientId') ?? '1';
+      final patientId = prefs.getInt('patient_id');
 
       final deviceInfo = DeviceInfoPlugin();
       final androidInfo = await deviceInfo.androidInfo;
@@ -123,13 +121,16 @@ class _FilterByDateState extends State<FilterByDate> {
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
-          "pacijent": patientId,
+          "pacijent": "1",
           "device": deviceId,
         },
       );
 
-      print("Status: ${res.statusCode}");
-      print("Body: ${res.body}");
+      final body = res.body;
+      int chunkSize = 1000;
+      for (int i = 0; i < body.length; i += chunkSize) {
+        print(body.substring(i, i + chunkSize > body.length ? body.length : i + chunkSize));
+      }
 
       if (res.statusCode != 200 && res.statusCode != 201) {
         throw Exception("Server returned bad status");
@@ -138,16 +139,63 @@ class _FilterByDateState extends State<FilterByDate> {
       final List<dynamic> jsonList = jsonDecode(res.body);
 
       List<CycleData> loaded = [];
-
       for (var item in jsonList) {
-        loaded.add(
-          CycleData(
-            start: item["cycle_start_time"].toString(),
-            end: item["cycle_end_time"].toString(),
-            values: item,
-          ),
-        );
+        loaded.add(CycleData(
+          start: item["cycle_start_time"].toString(),
+          end: item["cycle_end_time"].toString(),
+          values: item,
+        ));
       }
+
+      setState(() {
+        cycles = loaded;
+        loading = false;
+      });
+    } catch (e) {
+      setState(() => loading = false);
+      _showError("Error: $e");
+    }
+  }
+
+  Future<void> _loadFilteredData(DateTime from, DateTime to) async {
+    try {
+      setState(() => loading = true);
+
+      final prefs = await SharedPreferences.getInstance();
+      final patientId = prefs.getInt('patient_id');
+
+      final deviceInfo = DeviceInfoPlugin();
+      final androidInfo = await deviceInfo.androidInfo;
+      final deviceId = androidInfo.id;
+
+      final fromStr = displayFormat.format(from);
+      final toStr = displayFormat.format(to);
+
+      final url = Uri.parse(
+          "https://dev.intelheart.unic.kg.ac.rs:82/api/app/data/cycle-data/$fromStr/$toStr"
+      );
+      final res = await http.get(
+        url,
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "pacijent": "1",
+          "device": deviceId,
+        },
+      );
+
+      if (!res.body.trim().startsWith("{") && !res.body.trim().startsWith("[")) {
+        throw Exception("Backend returned non-JSON data:\n${res.body}");
+      }
+
+      final List<dynamic> jsonList = jsonDecode(res.body);
+
+      List<CycleData> loaded =
+      jsonList.map((item) => CycleData(
+        start: item["cycle_start_time"].toString(),
+        end: item["cycle_end_time"].toString(),
+        values: item,
+      )).toList();
 
       setState(() {
         cycles = loaded;
@@ -169,13 +217,31 @@ class _FilterByDateState extends State<FilterByDate> {
     );
   }
 
-  /// -------------------------------------------------
-  ///  WIDGET ZA PRIKAZ POLJA
-  /// -------------------------------------------------
+  Future<void> pickDate({required bool isStart}) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: isStart
+          ? (filterStartDate ?? DateTime.now())
+          : (filterEndDate ?? DateTime.now()),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+
+    if (picked != null) {
+      setState(() {
+        if (isStart) filterStartDate = picked;
+        else filterEndDate = picked;
+      });
+
+      if (filterStartDate != null && filterEndDate != null) {
+        _loadFilteredData(filterStartDate!, filterEndDate!);
+      }
+    }
+  }
+
   Widget _buildFieldBox(String label, dynamic value) {
     final icon = fieldIcons[label];
     final color = fieldColors[label] ?? Colors.grey;
-
     final textColor = (color is MaterialColor) ? color.shade700 : color;
 
     return SizedBox(
@@ -209,9 +275,6 @@ class _FilterByDateState extends State<FilterByDate> {
     );
   }
 
-  /// -------------------------------
-  ///  UI
-  /// -------------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -222,77 +285,144 @@ class _FilterByDateState extends State<FilterByDate> {
       ),
       body: loading
           ? const Center(child: CircularProgressIndicator())
-          : cycles.isEmpty
-          ? const Center(child: Text("No cycles returned."))
-          : ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: cycles.length,
-        itemBuilder: (context, index) {
-          final c = cycles[index];
-
-          return Container(
-            margin: const EdgeInsets.only(bottom: 20),
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(color: Colors.black12, blurRadius: 4),
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          : Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                /// HEADER — START → END
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      c.start,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16),
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.indigo,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
                     ),
-                    const Icon(Icons.arrow_forward),
-                    Text(
-                      c.end,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                  ],
+                  ),
+                  onPressed: () => pickDate(isStart: true),
+                  icon: const Icon(Icons.date_range,
+                      size: 18, color: Colors.white),
+                  label: Text(
+                    filterStartDate != null
+                        ? "From: ${displayFormat.format(filterStartDate!)}"
+                        : "From: Select",
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
                 ),
-
-                const SizedBox(height: 14),
-
-                /// POLJA U 2 KOLONE
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final double itemWidth = (constraints.maxWidth - 12) / 2;
-
-                    return Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: fieldLabels.entries.map((entry) {
-                        final backendKey = entry.key;
-                        final label = entry.value;
-
-                        if (!c.values.containsKey(backendKey)) {
-                          return const SizedBox.shrink();
-                        }
-
-                        final value = c.values[backendKey];
-
-                        return SizedBox(
-                          width: itemWidth,
-                          child: _buildFieldBox(label, value),
-                        );
-                      }).toList(),
-                    );
-                  },
+                TextButton.icon(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: Colors.indigo,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                  ),
+                  onPressed: () => pickDate(isStart: false),
+                  icon: const Icon(Icons.date_range_outlined,
+                      size: 18, color: Colors.white),
+                  label: Text(
+                    filterEndDate != null
+                        ? "To: ${displayFormat.format(filterEndDate!)}"
+                        : "To: Select",
+                    style: const TextStyle(
+                        fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ],
             ),
-          );
-        },
+          ),
+
+          Expanded(
+            child: cycles.isEmpty
+                ? const Center(child: Text("No cycles returned."))
+                : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: cycles.length,
+              itemBuilder: (context, index) {
+                final c = cycles[index];
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black12, blurRadius: 4),
+                    ],
+                  ),
+                  child: Theme(
+                    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                    child: ExpansionTile(
+                      tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      childrenPadding: const EdgeInsets.all(16),
+                      title: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              c.start,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+
+                            const Icon(Icons.arrow_forward, size: 18),
+
+                            const SizedBox(width: 12),
+
+                            Text(
+                              c.end,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 15,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      children: [
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final double itemWidth = (constraints.maxWidth - 12) / 2;
+
+                            return Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: fieldLabels.entries.map((entry) {
+                                final backendKey = entry.key;
+                                final label = entry.value;
+
+                                if (!c.values.containsKey(backendKey)) {
+                                  return const SizedBox.shrink();
+                                }
+
+                                final value = c.values[backendKey];
+
+                                return SizedBox(
+                                  width: itemWidth,
+                                  child: _buildFieldBox(label, value),
+                                );
+                              }).toList(),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
