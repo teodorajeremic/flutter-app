@@ -12,6 +12,7 @@ import 'History/AverageHeartRate.dart';
 import 'DataFile.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'Profile.dart';
+import 'VoiceInputs.dart';
 
 void main() {
   runApp(
@@ -78,26 +79,41 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
+  // void _onNavTapped(int index) {
+  //   setState(() {
+  //     _selectedIndex = index;
+  //   });
+  //
+  //   if (index == 0) {
+  //     Navigator.push(
+  //       context,
+  //       MaterialPageRoute(builder: (_) => const FilterByDate()),
+  //     );
+  //   } else if (index == 1) {
+  //     Navigator.push(
+  //       context,
+  //       MaterialPageRoute(builder: (_) => const UploadCSVPage()),
+  //     );
+  //   } else if (index == 2) {
+  //     Navigator.push(
+  //       context,
+  //       MaterialPageRoute(builder: (_) => const ProfilePage()),
+  //     );
+  //   }
+  // }
   void _onNavTapped(int index) {
     setState(() {
       _selectedIndex = index;
     });
 
     if (index == 0) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const FilterByDate()),
-      );
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const FilterByDate()));
     } else if (index == 1) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const UploadCSVPage()),
-      );
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const UploadCSVPage()));
     } else if (index == 2) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const ProfilePage()),
-      );
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const UploadVoiceInputsPage()));
+    } else if (index == 3) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfilePage()));
     }
   }
 
@@ -411,57 +427,53 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
       bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          // color: Colors.white, // background color of the whole bar
+        decoration: const BoxDecoration(
           borderRadius: BorderRadius.only(
             topLeft: Radius.circular(20),
             topRight: Radius.circular(20),
           ),
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.only(
+          borderRadius: const BorderRadius.only(
             topLeft: Radius.circular(20),
             topRight: Radius.circular(20),
           ),
           child: BottomNavigationBar(
             currentIndex: _selectedIndex,
             onTap: _onNavTapped,
-            backgroundColor: Color(
-              // teodora
-              0xFFEF474B,
-              //0xFF54b574,
-            ), // keep consistent with container
+            backgroundColor: const Color(0xFFEF474B),
             elevation: 0,
             type: BottomNavigationBarType.fixed,
-            selectedItemColor: Colors.white, // green for selected
-            unselectedItemColor: Colors.white, // grey for unselected
+            selectedItemColor: Colors.white,
+            unselectedItemColor: Colors.white,
             iconSize: 28,
-            selectedLabelStyle: TextStyle(
-              fontSize: 14,
-              height: 1.5,
-            ),
-            unselectedLabelStyle: TextStyle(fontSize: 12, height: 1.5),
-            items: [
+            selectedLabelStyle: const TextStyle(fontSize: 14, height: 1.5),
+            unselectedLabelStyle: const TextStyle(fontSize: 12, height: 1.5),
+            items: const [
               BottomNavigationBarItem(
                 icon: Padding(
-                  padding: const EdgeInsets.only(
-                    top: 8.0,
-                    bottom: 6.0,
-                  ), // vertical padding on icon
+                  padding: EdgeInsets.only(top: 8.0, bottom: 6.0),
                   child: Icon(Icons.calendar_today_outlined),
                 ),
                 label: 'Cycles',
               ),
               BottomNavigationBarItem(
                 icon: Padding(
-                  padding: const EdgeInsets.only(top: 8.0, bottom: 6.0),
+                  padding: EdgeInsets.only(top: 8.0, bottom: 6.0),
                   child: Icon(Icons.file_copy_outlined),
                 ),
                 label: 'Data',
               ),
               BottomNavigationBarItem(
                 icon: Padding(
-                  padding: const EdgeInsets.only(top: 8.0, bottom: 6.0),
+                  padding: EdgeInsets.only(top: 8.0, bottom: 6.0),
+                  child: Icon(Icons.mic_none_outlined),
+                ),
+                label: 'Voice',
+              ),
+              BottomNavigationBarItem(
+                icon: Padding(
+                  padding: EdgeInsets.only(top: 8.0, bottom: 6.0),
                   child: Icon(Icons.person),
                 ),
                 label: 'Profile',
