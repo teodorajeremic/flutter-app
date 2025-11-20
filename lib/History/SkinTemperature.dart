@@ -1,8 +1,9 @@
-import 'dart:io';
-import 'package:csv/csv.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:table_calendar/table_calendar.dart';
 
@@ -25,23 +26,22 @@ class SkinTemperatureEntry {
 
 class _SkinTemperaturePageState extends State<SkinTemperaturePage>
     with SingleTickerProviderStateMixin {
-  List<SkinTemperatureEntry> entries = [];
-  List<SkinTemperatureEntry> filteredEntries = [];
   DateTime clamp(DateTime day, DateTime first, DateTime last) {
     if (day.isBefore(first)) return first;
     if (day.isAfter(last)) return last;
     return day;
   }
 
-  DateTime? currentWindowEnd;
+  List<SkinTemperatureEntry> entries = [];
+  List<SkinTemperatureEntry> filteredEntries = [];
+
   late TabController _tabController;
 
-  final DateFormat csvDateFormat = DateFormat('dd-MM-yy HH:mm');
-  final DateFormat displayDateFormat = DateFormat('MMM dd, yyyy');
-
-  // For calendar focused days in 30 days and all tabs
+  DateTime? currentWindowEnd;
   DateTime _focusedDay30 = DateTime.now();
   DateTime _focusedDayAll = DateTime.now();
+
+  final DateFormat displayDateFormat = DateFormat('MMM dd, yyyy');
 
   @override
   void initState() {
@@ -52,67 +52,58 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
       _onTabChanged(_tabController.index);
     });
 
-    _loadStoredCSV();
+    _loadFromBackend();
   }
 
-  Future<void> _loadStoredCSV() async {
+  Future<void> _loadFromBackend() async {
     try {
-      final directory = await getApplicationDocumentsDirectory();
-      final csvFiles = directory
-          .listSync()
-          .whereType<File>()
-          .where((file) => file.path.endsWith('.csv'))
-          .toList();
+      final prefs = await SharedPreferences.getInstance();
+      final patientId = prefs.getString('patientId') ?? '1';
+      final deviceInfo = DeviceInfoPlugin();
+      final androidInfo = await deviceInfo.androidInfo;
+      final deviceId = androidInfo.id;
 
-      if (csvFiles.isEmpty) {
-        _showError("No CSV file found in local storage.");
-        return;
+      final url =
+      Uri.parse("https://dev.intelheart.unic.kg.ac.rs:82/api/app/data/all");
+
+      final res = await http.get(url, headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "pacijent": patientId.toString(),
+        "device": deviceId,
+      });
+
+      if (res.statusCode != 200 && res.statusCode != 201) {
+        throw Exception("Server je vratio status: ${res.statusCode}");
       }
 
-      final file = csvFiles.first;
-      final csvContent = await file.readAsString();
-      final rows = const CsvToListConverter().convert(csvContent, eol: '\n');
-
-      final header = rows.first.map((e) => e.toString().trim()).toList();
-      final startIndex = header.indexOf('Cycle start time');
-      final tempIndex = header.indexOf('Skin temp (celsius)');
-
-      if (startIndex == -1 || tempIndex == -1) {
-        _showError("Missing required columns in CSV.");
-        return;
-      }
-
-      final data = rows
-          .skip(1)
-          .where(
-            (row) =>
-        row.length > tempIndex &&
-            row.length > startIndex &&
-            row[tempIndex] != null &&
-            row[startIndex] != null,
-      )
-          .map((row) {
-        DateTime parsedDate = csvDateFormat.parse(
-          row[startIndex].toString(),
-        );
-        double temp = double.tryParse(row[tempIndex].toString()) ?? 0;
+      final List<dynamic> jsonList = jsonDecode(res.body);
+      final data = jsonList
+          .where((item) =>
+      item.containsKey("cycle_start_time") &&
+          item.containsKey("skin_temp_celsius") &&
+          item["skin_temp_celsius"] != null &&
+          item["cycle_start_time"] != null)
+          .map((item) {
+        String raw = item["cycle_start_time"].toString().replaceAll(" ", "T");
+        DateTime parsedDate = DateTime.parse(raw);
+        double temp =
+            double.tryParse(item["skin_temp_celsius"].toString()) ?? 0;
         return SkinTemperatureEntry(
-          startDate: parsedDate,
-          SkinTemperature: temp,
-        );
-      })
-          .toList();
+            startDate: parsedDate, SkinTemperature: temp);
+      }).toList();
 
       data.sort((a, b) => a.startDate.compareTo(b.startDate));
 
-      setState(() {
-        entries = data;
-        currentWindowEnd = _getEndOfWeek(DateTime.now());
-      });
-
-      _filterLastWeek();
+      if (mounted) {
+        setState(() {
+          entries = data;
+          currentWindowEnd = _getEndOfWeek(DateTime.now());
+          _filterLastWeek();
+        });
+      }
     } catch (e) {
-      _showError("Error reading CSV file: $e");
+      _showError("Greška pri učitavanju podataka sa backenda: $e");
     }
   }
 
@@ -123,12 +114,10 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
         _filterLastWeek();
         break;
       case 1:
-        currentWindowEnd = null;
         _focusedDay30 = DateTime.now();
-        _filterLast30Days();
+        _filterLast30DaysFromFocused();
         break;
       case 2:
-        currentWindowEnd = null;
         _focusedDayAll = DateTime.now();
         _showAllData();
         break;
@@ -138,11 +127,8 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
   DateTime _getEndOfWeek(DateTime date) {
     int daysToAdd = DateTime.sunday - date.weekday;
     if (daysToAdd < 0) daysToAdd += 7;
-    return DateTime(
-      date.year,
-      date.month,
-      date.day,
-    ).add(Duration(days: daysToAdd));
+    return DateTime(date.year, date.month, date.day)
+        .add(Duration(days: daysToAdd));
   }
 
   void _filterLastWeek() {
@@ -150,25 +136,20 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
     final startOfWeek = currentWindowEnd!.subtract(const Duration(days: 6));
     setState(() {
       filteredEntries = entries.where((e) {
-        return e.startDate.isAtSameMomentAs(startOfWeek) ||
+        return (e.startDate.isAtSameMomentAs(startOfWeek) ||
             e.startDate.isAtSameMomentAs(currentWindowEnd!) ||
             (e.startDate.isAfter(startOfWeek) &&
-                e.startDate.isBefore(
-                  currentWindowEnd!.add(const Duration(days: 1)),
-                ));
+                e.startDate.isBefore(currentWindowEnd!.add(Duration(days: 1)))));
       }).toList();
     });
   }
 
-  void _filterLast30Days() {
-    final now = DateTime.now();
-    final past30Days = now.subtract(const Duration(days: 29));
+  void _filterLast30DaysFromFocused() {
+    final end = _focusedDay30;
+    final start = end.subtract(const Duration(days: 29));
     setState(() {
       filteredEntries = entries
-          .where(
-            (e) =>
-        !e.startDate.isBefore(past30Days) && !e.startDate.isAfter(now),
-      )
+          .where((e) => !e.startDate.isBefore(start) && !e.startDate.isAfter(end))
           .toList();
     });
   }
@@ -189,13 +170,27 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
 
   void _goNextWeek() {
     if (currentWindowEnd == null) return;
+    final nextWeekEnd = currentWindowEnd!.add(const Duration(days: 7));
+    if (nextWeekEnd.isAfter(_getEndOfWeek(DateTime.now()))) return;
     setState(() {
-      DateTime nextWeekEnd = currentWindowEnd!.add(const Duration(days: 7));
-      if (nextWeekEnd.isAfter(_getEndOfWeek(DateTime.now()))) {
-        return;
-      }
       currentWindowEnd = nextWeekEnd;
       _filterLastWeek();
+    });
+  }
+
+  void _goPrevious30Days() {
+    setState(() {
+      _focusedDay30 = _focusedDay30.subtract(const Duration(days: 30));
+      _filterLast30DaysFromFocused();
+    });
+  }
+
+  void _goNext30Days() {
+    final now = DateTime.now();
+    if (_focusedDay30.add(const Duration(days: 30)).isAfter(now)) return;
+    setState(() {
+      _focusedDay30 = _focusedDay30.add(const Duration(days: 30));
+      _filterLast30DaysFromFocused();
     });
   }
 
@@ -206,9 +201,9 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
         final startOfWeek = currentWindowEnd!.subtract(const Duration(days: 6));
         return '${displayDateFormat.format(startOfWeek)} - ${displayDateFormat.format(currentWindowEnd!)}';
       case 1:
-        final now = DateTime.now();
-        final past30Days = now.subtract(const Duration(days: 29));
-        return '${displayDateFormat.format(past30Days)} - ${displayDateFormat.format(now)}';
+        final end = _focusedDay30;
+        final start = end.subtract(const Duration(days: 29));
+        return '${displayDateFormat.format(start)} - ${displayDateFormat.format(end)}';
       case 2:
         if (entries.isEmpty) return '';
         final first = entries.first.startDate;
@@ -225,6 +220,35 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
       builder: (_) => AlertDialog(
         title: const Icon(Icons.error, color: Colors.red, size: 40),
         content: Text(message, textAlign: TextAlign.center),
+      ),
+    );
+  }
+
+  Widget buildNavigationRow(
+      {VoidCallback? onPrev, VoidCallback? onNext, required String label}) {
+    return SizedBox(
+      height: 36,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (onPrev != null)
+            GestureDetector(
+              onTap: onPrev,
+              child: const Icon(Icons.arrow_back, size: 20, color: Colors.black54),
+            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(label,
+                style:
+                const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ),
+          if (onNext != null)
+            GestureDetector(
+              onTap: onNext,
+              child:
+              const Icon(Icons.arrow_forward, size: 20, color: Colors.black54),
+            ),
+        ],
       ),
     );
   }
@@ -270,24 +294,28 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
     );
   }
 
-  Widget buildCalendarView({required DateTime firstDay, required DateTime lastDay, required DateTime focusedDay, required ValueChanged<DateTime> onDayFocused}) {
-    Map<DateTime, double> heartRateMap = {
+  Widget buildCalendarView(
+      {required DateTime firstDay,
+        required DateTime lastDay,
+        required DateTime focusedDay,
+        required ValueChanged<DateTime> onDayFocused}) {
+    Map<DateTime, double> skinTempMap = {
       for (var entry in filteredEntries)
         DateTime(entry.startDate.year, entry.startDate.month, entry.startDate.day):
         entry.SkinTemperature,
     };
 
     return Transform.translate(
-      offset: const Offset(0, -10), // Move calendar up by 10 pixels
+      offset: const Offset(0, -10),
       child: TableCalendar(
         firstDay: firstDay,
         lastDay: lastDay,
         focusedDay: focusedDay,
-        startingDayOfWeek: StartingDayOfWeek.monday, // <-- Set Monday as first day
+        startingDayOfWeek: StartingDayOfWeek.monday,
         headerStyle: const HeaderStyle(
           formatButtonVisible: false,
           titleCentered: true,
-          headerPadding: EdgeInsets.zero, // Remove header padding to reduce gap
+          headerPadding: EdgeInsets.zero,
           titleTextStyle: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 16,
@@ -309,7 +337,7 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
         ),
         calendarBuilders: CalendarBuilders(
           defaultBuilder: (context, day, focusedDay) {
-            double? hr = heartRateMap[DateTime(day.year, day.month, day.day)];
+            double? hr = skinTempMap[DateTime(day.year, day.month, day.day)];
             return Container(
               margin: const EdgeInsets.all(2),
               decoration: BoxDecoration(
@@ -322,20 +350,16 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      "${day.day}",
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
+                    Text("${day.day}",
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 2),
-                    Text(
-                      hr != null && hr > 0 ? hr.toStringAsFixed(0) : "--",
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: hr != null && hr > 0
-                            ? Colors.deepOrangeAccent
-                            : Colors.grey,
-                      ),
-                    ),
+                    Text(hr != null && hr > 0 ? hr.toStringAsFixed(0) : "--",
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: hr != null && hr > 0
+                              ? Colors.deepOrangeAccent
+                              : Colors.grey,
+                        )),
                   ],
                 ),
               ),
@@ -347,19 +371,63 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
     );
   }
 
+  Widget buildChart() {
+    return SizedBox(
+      height: 250,
+      child: SfCartesianChart(
+        primaryXAxis: DateTimeAxis(
+          intervalType: DateTimeIntervalType.days,
+          dateFormat: DateFormat.MMMd(),
+          interval: 1,
+          edgeLabelPlacement: EdgeLabelPlacement.shift,
+          majorTickLines: MajorTickLines(size: 0),
+          minorTickLines: MinorTickLines(size: 0),
+          majorGridLines: const MajorGridLines(width: 0),
+          labelStyle: const TextStyle(color: Colors.transparent),
+        ),
+        primaryYAxis: NumericAxis(
+          majorTickLines: MajorTickLines(size: 0),
+          minorTickLines: MinorTickLines(size: 0),
+          majorGridLines: const MajorGridLines(width: 1),
+        ),
+        series: <SplineAreaSeries<SkinTemperatureEntry, DateTime>>[
+          SplineAreaSeries<SkinTemperatureEntry, DateTime>(
+            dataSource: filteredEntries,
+            xValueMapper: (e, _) => e.startDate,
+            yValueMapper: (e, _) => e.SkinTemperature == 0 ? null : e.SkinTemperature,
+            color: Colors.deepOrangeAccent.withOpacity(0.5),
+            borderColor: Colors.deepOrangeAccent,
+            borderWidth: 2,
+            splineType: SplineType.monotonic,
+            markerSettings: const MarkerSettings(isVisible: false),
+            enableTooltip: false,
+            emptyPointSettings: EmptyPointSettings(
+              mode: EmptyPointMode.gap,
+              color: Colors.transparent,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isWeekView = _tabController.index == 0;
     final is30DaysView = _tabController.index == 1;
     final isAllView = _tabController.index == 2;
 
-    DateTime firstDateAll = entries.isEmpty
+    // Clamp za Last 30 Days
+    DateTime firstDay30 = DateTime.now().subtract(const Duration(days: 29));
+    DateTime lastDay30 = DateTime.now();
+    DateTime focusedDay30Clamped = clamp(_focusedDay30, firstDay30, lastDay30);
+
+    // Clamp za All
+    DateTime firstDayAll = entries.isEmpty
         ? DateTime.now().subtract(const Duration(days: 365))
         : entries.first.startDate;
-    DateTime lastDateAll = entries.isEmpty ? DateTime.now() : entries.last.startDate;
-
-    // Clamp focusedDayAll so it stays inside valid range
-    _focusedDayAll = clamp(_focusedDayAll, firstDateAll, lastDateAll);
+    DateTime lastDayAll = entries.isEmpty ? DateTime.now() : entries.last.startDate;
+    DateTime focusedDayAllClamped = clamp(_focusedDayAll, firstDayAll, lastDayAll);
 
     return DefaultTabController(
       length: 3,
@@ -394,6 +462,7 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
             child: Column(
               children: [
                 const SizedBox(height: 10),
+                // Strelice i tekst opsega
                 SizedBox(
                   height: 36,
                   child: Row(
@@ -402,35 +471,35 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
                       if (isWeekView)
                         GestureDetector(
                           onTap: _goPreviousWeek,
-                          child: const Icon(
-                            Icons.arrow_back,
-                            size: 20,
-                            color: Colors.black54,
-                          ),
+                          child: const Icon(Icons.arrow_back, size: 20, color: Colors.black54),
+                        )
+                      else if (is30DaysView)
+                        GestureDetector(
+                          onTap: _goPrevious30Days,
+                          child: const Icon(Icons.arrow_back, size: 20, color: Colors.black54),
                         ),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 8.0),
                         child: Text(
                           _getWeekRangeText(),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                       ),
                       if (isWeekView)
                         GestureDetector(
                           onTap: _goNextWeek,
-                          child: const Icon(
-                            Icons.arrow_forward,
-                            size: 20,
-                            color: Colors.black54,
-                          ),
+                          child: const Icon(Icons.arrow_forward, size: 20, color: Colors.black54),
+                        )
+                      else if (is30DaysView)
+                        GestureDetector(
+                          onTap: _goNext30Days,
+                          child: const Icon(Icons.arrow_forward, size: 20, color: Colors.black54),
                         ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 15),
+                // Grafikon
                 SizedBox(
                   height: 250,
                   child: SfCartesianChart(
@@ -453,8 +522,7 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
                       SplineAreaSeries<SkinTemperatureEntry, DateTime>(
                         dataSource: filteredEntries,
                         xValueMapper: (e, _) => e.startDate,
-                        yValueMapper: (e, _) =>
-                        e.SkinTemperature == 0 ? null : e.SkinTemperature,
+                        yValueMapper: (e, _) => e.SkinTemperature == 0 ? null : e.SkinTemperature,
                         color: Colors.deepOrangeAccent.withOpacity(0.5),
                         borderColor: Colors.deepOrangeAccent,
                         borderWidth: 2,
@@ -469,8 +537,8 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
                     ],
                   ),
                 ),
-                Divider(height: 0),
-                SizedBox(height: 20),
+                const Divider(height: 0),
+                const SizedBox(height: 20),
                 if (filteredEntries.isEmpty)
                   const Center(
                     child: Text(
@@ -482,23 +550,24 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
                   buildWeekView()
                 else if (is30DaysView)
                     buildCalendarView(
-                      firstDay: DateTime.now().subtract(const Duration(days: 29)),
-                      lastDay: DateTime.now(),
-                      focusedDay: _focusedDay30,
+                      firstDay: firstDay30,
+                      lastDay: lastDay30,
+                      focusedDay: focusedDay30Clamped,
                       onDayFocused: (focusedDay) {
                         setState(() {
-                          _focusedDay30 = focusedDay;
+                          _focusedDay30 = clamp(focusedDay, firstDay30, lastDay30);
+                          _filterLast30DaysFromFocused();
                         });
                       },
                     )
                   else if (isAllView)
                       buildCalendarView(
-                        firstDay: firstDateAll,
-                        lastDay: lastDateAll,
-                        focusedDay: _focusedDayAll,
+                        firstDay: firstDayAll,
+                        lastDay: lastDayAll,
+                        focusedDay: focusedDayAllClamped,
                         onDayFocused: (focusedDay) {
                           setState(() {
-                            _focusedDayAll = focusedDay;
+                            _focusedDayAll = clamp(focusedDay, firstDayAll, lastDayAll);
                           });
                         },
                       ),
@@ -509,4 +578,6 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
       ),
     );
   }
+
 }
+
