@@ -14,7 +14,7 @@ class UploadCSVPage extends StatefulWidget {
 
 class _UploadCSVPageState extends State<UploadCSVPage> {
   String? _filePath;
-  String? _fileName; // Dodajemo promenljivu za naziv fajla
+  String? _fileName; // naziv fajla
   String? _statusMessage;
 
   @override
@@ -28,7 +28,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
     final lastFile = prefs.getString('last_uploaded_file');
     if (lastFile != null) {
       setState(() {
-        _fileName = lastFile; // postavljamo naziv fajla
+        _fileName = lastFile; // naziv fajla
         _statusMessage = "Last uploaded file: $lastFile";
       });
     }
@@ -52,7 +52,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
 
         setState(() {
           _filePath = path;
-          _fileName = path.split('/').last; // odmah postavljamo naziv fajla
+          _fileName = path.split('/').last; // naziv fajla
         });
 
         await _uploadCsvToBackend(path);
@@ -162,7 +162,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
                 ),
               ),
               const SizedBox(height: 20),
-              if (_fileName != null) // Prikaz naziva fajla uvek
+              if (_fileName != null)
                 Text(
                   "Selected file: $_fileName",
                   style: const TextStyle(

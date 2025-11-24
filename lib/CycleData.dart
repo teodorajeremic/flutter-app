@@ -134,7 +134,7 @@ class _FilterByDateState extends State<FilterByDate> {
         cycles = jsonList
             .map((item) => CycleData(
           start: item["cycle_start_time"].toString(),
-          end: item["cycle_end_time"].toString(), // ← ISPRAVLJENO
+          end: item["cycle_end_time"].toString(),
           values: item,
         ))
             .toList();
