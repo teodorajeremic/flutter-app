@@ -29,7 +29,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
     if (lastFile != null) {
       setState(() {
         _fileName = lastFile; // naziv fajla
-        _statusMessage = "Last uploaded file: $lastFile";
+        _statusMessage = "Poslednje otpremljeni fajl: $lastFile";
       });
     }
   }
@@ -48,7 +48,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
       if (result != null && result.files.isNotEmpty) {
         final file = result.files.single;
         String? path = file.path;
-        if (path == null) throw Exception('Could not get file path.');
+        if (path == null) throw Exception('Nije moguće dobiti putanju fajla.');
 
         setState(() {
           _filePath = path;
@@ -58,12 +58,12 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
         await _uploadCsvToBackend(path);
       } else {
         setState(() {
-          _statusMessage = 'File picking cancelled.';
+          _statusMessage = 'Biranje fajla je otkazano.';
         });
       }
     } catch (e) {
       setState(() {
-        _statusMessage = 'Error: $e';
+        _statusMessage = 'Greška: $e';
       });
     }
   }
@@ -72,7 +72,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
     final file = File(filePath);
     if (!file.existsSync()) {
       setState(() {
-        _statusMessage = "CSV file does not exist.";
+        _statusMessage = "CSV fajl ne postoji.";
       });
       return;
     }
@@ -113,16 +113,16 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
 
         setState(() {
           _fileName = fileName; // uvek prikazujemo naziv fajla
-          _statusMessage = "CSV '$fileName' successfully uploaded!";
+          _statusMessage = "CSV fajl '$fileName' je uspešno otpremljen!";
         });
       } else {
         setState(() {
-          _statusMessage = "Error ${response.statusCode}: $responseBody";
+          _statusMessage = "Greška ${response.statusCode}: $responseBody";
         });
       }
     } catch (e) {
       setState(() {
-        _statusMessage = "Upload failed: $e";
+        _statusMessage = "Otpremanje neuspešno: $e";
       });
     }
   }
@@ -148,7 +148,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
                 onPressed: _pickAndUploadFile,
                 icon: const Icon(Icons.upload_file, size: 20),
                 label: const Text(
-                  'Pick and Upload CSV',
+                  'Izaberi i otpremi CSV fajl',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
                 style: ElevatedButton.styleFrom(
@@ -164,7 +164,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
               const SizedBox(height: 20),
               if (_fileName != null)
                 Text(
-                  "Selected file: $_fileName",
+                  "Izabrani fajl: $_fileName",
                   style: const TextStyle(
                       fontSize: 16, fontWeight: FontWeight.w500),
                 ),
@@ -173,7 +173,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: _statusMessage!.startsWith('Error')
+                    color: _statusMessage!.startsWith('Greška')
                         ? Colors.red.shade100
                         : Colors.blue.shade100,
                     borderRadius: BorderRadius.circular(10),
@@ -182,7 +182,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
                     _statusMessage!,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: _statusMessage!.startsWith('Error')
+                      color: _statusMessage!.startsWith('Greška')
                           ? Colors.red.shade800
                           : Colors.blue.shade800,
                       fontWeight: FontWeight.w600,

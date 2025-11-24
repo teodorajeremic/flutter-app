@@ -150,7 +150,7 @@ class _FilterByDateState extends State<FilterByDate> {
   /// FILTER
   Future<void> _filter() async {
     if (filterStartDate == null || filterEndDate == null) {
-      _showError("Select both FROM and TO dates");
+      _showError("Izaberite i početni i krajnji datum");
       return;
     }
 
@@ -190,7 +190,7 @@ class _FilterByDateState extends State<FilterByDate> {
       });
     } catch (e) {
       loading = false;
-      _showError("Error filtering: $e");
+      _showError("Greška pri filtriranju: $e");
     }
   }
 
@@ -227,8 +227,40 @@ class _FilterByDateState extends State<FilterByDate> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text("Error"),
+        title: const Text("Greška"),
         content: Text(msg),
+      ),
+    );
+  }
+
+  /// GRID FIELD BOX WIDGET
+  Widget _buildGridFieldBox(String label, dynamic value) {
+    final icon = fieldIcons[label];
+    final color = fieldColors[label] ?? Colors.grey;
+    final textColor = (color is MaterialColor) ? color.shade700 : color;
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.5), width: 1.5),
+      ),
+      child: Row(
+        children: [
+          if (icon != null)
+            Icon(icon, color: color, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              "$label:\n$value",
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: textColor,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -241,12 +273,9 @@ class _FilterByDateState extends State<FilterByDate> {
         backgroundColor: const Color(0xFFEF474B),
         foregroundColor: Colors.white,
       ),
-
-      /// BODY
       body: Column(
         children: [
           const SizedBox(height: 14),
-
           /// FILTER CARD
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -270,36 +299,33 @@ class _FilterByDateState extends State<FilterByDate> {
                     readOnly: true,
                     onTap: () => pickDate(isStart: true),
                     decoration: InputDecoration(
-                      labelText: "From",
+                      labelText: "Početni datum",
                       suffixIcon: Icon(Icons.calendar_today),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                       hintText: filterStartDate == null
-                          ? "Select date"
+                          ? "Izaberi datum"
                           : displayFormat.format(filterStartDate!),
                     ),
                   ),
                   const SizedBox(height: 12),
-
                   /// TO FIELD
                   TextField(
                     readOnly: true,
                     onTap: () => pickDate(isStart: false),
                     decoration: InputDecoration(
-                      labelText: "To",
+                      labelText: "Krajnji datum",
                       suffixIcon: Icon(Icons.calendar_month),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                       hintText: filterEndDate == null
-                          ? "Select date"
+                          ? "Izaberi datum"
                           : displayFormat.format(filterEndDate!),
                     ),
                   ),
-
                   const SizedBox(height: 14),
-
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -314,7 +340,7 @@ class _FilterByDateState extends State<FilterByDate> {
                             ),
                           ),
                           child: const Text(
-                            "Filter",
+                            "Filtriranje",
                             style: TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold),
@@ -332,7 +358,7 @@ class _FilterByDateState extends State<FilterByDate> {
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
-                          child: const Text("Reset"),
+                          child: const Text("Resetuj filter"),
                         ),
                       ),
                     ],
@@ -341,15 +367,13 @@ class _FilterByDateState extends State<FilterByDate> {
               ),
             ),
           ),
-
           const SizedBox(height: 14),
-
           /// LIST
           Expanded(
             child: loading
                 ? const Center(child: CircularProgressIndicator())
                 : cycles.isEmpty
-                ? const Center(child: Text("No data."))
+                ? const Center(child: Text("Nema podataka."))
                 : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: cycles.length,
@@ -382,53 +406,26 @@ class _FilterByDateState extends State<FilterByDate> {
                         ),
                       ),
                       children: [
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
+                        GridView.count(
+                          shrinkWrap: true,
+                          physics:
+                          const NeverScrollableScrollPhysics(),
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 2,
                           children:
                           fieldLabels.entries.map((entry) {
-                            final key = entry.key;
+                            final backendKey = entry.key;
                             final label = entry.value;
 
-                            if (!c.values.containsKey(key)) {
+                            if (!c.values.containsKey(backendKey)) {
                               return const SizedBox.shrink();
                             }
 
-                            final val = c.values[key];
+                            final value = c.values[backendKey];
 
-                            final color =
-                                fieldColors[label] ?? Colors.grey;
-                            final icon = fieldIcons[label];
-
-                            return Container(
-                              width:
-                              (MediaQuery.of(context).size.width -
-                                  60) /
-                                  2,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                borderRadius:
-                                BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: color.withOpacity(0.4),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  if (icon != null)
-                                    Icon(icon, color: color),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Text(
-                                      "$label: $val",
-                                      maxLines: 3,
-                                      overflow:
-                                      TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
+                            return _buildGridFieldBox(label, value);
                           }).toList(),
                         ),
                       ],
