@@ -310,7 +310,7 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
       child: TableCalendar(
         firstDay: firstDay,
         lastDay: lastDay,
-        focusedDay: focusedDay,
+        focusedDay: _focusedDay30,
         startingDayOfWeek: StartingDayOfWeek.monday,
         headerStyle: const HeaderStyle(
           formatButtonVisible: false,
@@ -422,11 +422,10 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
     DateTime focusedDay30Clamped = clamp(_focusedDay30, firstDay30, lastDay30);
 
     // Clamp za All
-    DateTime firstDayAll = entries.isEmpty
-        ? DateTime.now().subtract(const Duration(days: 365))
-        : entries.first.startDate;
-    DateTime lastDayAll = entries.isEmpty ? DateTime.now() : entries.last.startDate;
-    DateTime focusedDayAllClamped = clamp(_focusedDayAll, firstDayAll, lastDayAll);
+    DateTime firstDayAll = DateTime.now().subtract(Duration(days: 365));
+    DateTime lastDayAll = DateTime.now().add(Duration(days: 365));
+
+    //DateTime _focusedDayAll = DateTime.now();
 
     return DefaultTabController(
       length: 3,
@@ -549,13 +548,13 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
                   buildWeekView()
                 else if (is30DaysView)
                     buildCalendarView(
-                      firstDay: firstDay30,
-                      lastDay: lastDay30,
-                      focusedDay: focusedDay30Clamped,
+                      firstDay: firstDayAll,
+                      lastDay: lastDayAll,
+                      focusedDay: _focusedDayAll,
                       onDayFocused: (focusedDay) {
                         setState(() {
-                          _focusedDay30 = clamp(focusedDay, firstDay30, lastDay30);
-                          _filterLast30DaysFromFocused();
+                          _focusedDayAll = clamp(focusedDay, firstDayAll, lastDayAll);
+                          //_filterLast30DaysFromFocused();
                         });
                       },
                     )
@@ -563,7 +562,7 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
                       buildCalendarView(
                         firstDay: firstDayAll,
                         lastDay: lastDayAll,
-                        focusedDay: focusedDayAllClamped,
+                        focusedDay: _focusedDayAll,
                         onDayFocused: (focusedDay) {
                           setState(() {
                             _focusedDayAll = clamp(focusedDay, firstDayAll, lastDayAll);
