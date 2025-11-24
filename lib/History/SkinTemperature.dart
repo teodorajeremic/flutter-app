@@ -366,7 +366,6 @@ class _SkinTemperaturePageState extends State<SkinTemperaturePage>
             );
           },
         ),
-        onPageChanged: onDayFocused,
       ),
     );
   }
