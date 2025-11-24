@@ -30,8 +30,10 @@ class _FilterByDateState extends State<FilterByDate> {
 
   DateTime? filterStartDate;
   DateTime? filterEndDate;
+
   final DateFormat displayFormat = DateFormat('yyyy-MM-dd');
 
+  /// LABELS
   final Map<String, String> fieldLabels = {
     "cycle_start_time": "Cycle start time",
     "cycle_end_time": "Cycle end time",
@@ -55,6 +57,7 @@ class _FilterByDateState extends State<FilterByDate> {
     "sleep_debt_min": "Sleep debt (min)",
   };
 
+  /// ICONS
   final Map<String, IconData> fieldIcons = {
     'Cycle start time': Icons.play_arrow,
     'Cycle end time': Icons.stop,
@@ -78,6 +81,7 @@ class _FilterByDateState extends State<FilterByDate> {
     'Sleep debt (min)': Icons.warning,
   };
 
+  /// COLORS
   final Map<String, Color> fieldColors = {
     'Resting heart rate (bpm)': Colors.red,
     'Heart rate variability (ms)': Colors.blue,
@@ -103,107 +107,119 @@ class _FilterByDateState extends State<FilterByDate> {
     _loadFromBackend();
   }
 
+  /// LOAD ALL DATA
   Future<void> _loadFromBackend() async {
     try {
       setState(() => loading = true);
 
       final prefs = await SharedPreferences.getInstance();
-      final patientId = prefs.getInt('patient_id');
-
       final deviceInfo = DeviceInfoPlugin();
-      final androidInfo = await deviceInfo.androidInfo;
-      final deviceId = androidInfo.id;
-
-      final url = Uri.parse("https://dev.intelheart.unic.kg.ac.rs:82/api/app/data/all");
+      final android = await deviceInfo.androidInfo;
 
       final res = await http.get(
-        url,
+        Uri.parse("https://dev.intelheart.unic.kg.ac.rs:82/api/app/data/all"),
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
           "pacijent": "1",
-          "device": deviceId,
+          "device": android.id,
         },
       );
 
-      final body = res.body;
-      int chunkSize = 1000;
-      for (int i = 0; i < body.length; i += chunkSize) {
-        print(body.substring(i, i + chunkSize > body.length ? body.length : i + chunkSize));
-      }
-
-      if (res.statusCode != 200 && res.statusCode != 201) {
-        throw Exception("Server returned bad status");
-      }
-
       final List<dynamic> jsonList = jsonDecode(res.body);
 
-      List<CycleData> loaded = [];
-      for (var item in jsonList) {
-        loaded.add(CycleData(
-          start: item["cycle_start_time"].toString(),
-          end: item["cycle_end_time"].toString(),
-          values: item,
-        ));
-      }
+      print("RESPONSE: ${res.body}");
 
       setState(() {
-        cycles = loaded;
+        cycles = jsonList
+            .map((item) => CycleData(
+          start: item["cycle_start_time"].toString(),
+          end: item["cycle_end_time"].toString(), // ← ISPRAVLJENO
+          values: item,
+        ))
+            .toList();
+
         loading = false;
       });
     } catch (e) {
-      setState(() => loading = false);
-      _showError("Error: $e");
+      loading = false;
+      _showError("Error loading: $e");
     }
   }
 
-  Future<void> _loadFilteredData(DateTime from, DateTime to) async {
+  /// FILTER
+  Future<void> _filter() async {
+    if (filterStartDate == null || filterEndDate == null) {
+      _showError("Select both FROM and TO dates");
+      return;
+    }
+
     try {
       setState(() => loading = true);
 
-      final prefs = await SharedPreferences.getInstance();
-      final patientId = prefs.getInt('patient_id');
+      final from = displayFormat.format(filterStartDate!);
+      final to = displayFormat.format(filterEndDate!);
 
       final deviceInfo = DeviceInfoPlugin();
-      final androidInfo = await deviceInfo.androidInfo;
-      final deviceId = androidInfo.id;
+      final android = await deviceInfo.androidInfo;
 
-      final fromStr = displayFormat.format(from);
-      final toStr = displayFormat.format(to);
-
-      final url = Uri.parse(
-          "https://dev.intelheart.unic.kg.ac.rs:82/api/app/data/cycle-data/$fromStr/$toStr"
-      );
       final res = await http.get(
-        url,
+        Uri.parse(
+          "https://dev.intelheart.unic.kg.ac.rs:82/api/app/data/cycle-data/$from/$to",
+        ),
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
           "pacijent": "1",
-          "device": deviceId,
+          "device": android.id,
         },
       );
 
-      if (!res.body.trim().startsWith("{") && !res.body.trim().startsWith("[")) {
-        throw Exception("Backend returned non-JSON data:\n${res.body}");
-      }
-
       final List<dynamic> jsonList = jsonDecode(res.body);
 
-      List<CycleData> loaded =
-      jsonList.map((item) => CycleData(
-        start: item["cycle_start_time"].toString(),
-        end: item["cycle_end_time"].toString(),
-        values: item,
-      )).toList();
-
+      print("RESPONSE: ${res.body}");
       setState(() {
-        cycles = loaded;
+        cycles = jsonList
+            .map((item) => CycleData(
+          start: item["cycle_start_time"].toString(),
+          end: item["cycle_end_time"].toString(),
+          values: item,
+        ))
+            .toList();
         loading = false;
       });
     } catch (e) {
-      setState(() => loading = false);
-      _showError("Error: $e");
+      loading = false;
+      _showError("Error filtering: $e");
+    }
+  }
+
+  /// RESET
+  void _reset() {
+    setState(() {
+      filterStartDate = null;
+      filterEndDate = null;
+    });
+    _loadFromBackend();
+  }
+
+  /// PICK DATE
+  Future<void> pickDate({required bool isStart}) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+
+    if (picked != null) {
+      setState(() {
+        if (isStart) {
+          filterStartDate = picked;
+        } else {
+          filterEndDate = picked;
+        }
+      });
     }
   }
 
@@ -217,64 +233,6 @@ class _FilterByDateState extends State<FilterByDate> {
     );
   }
 
-  Future<void> pickDate({required bool isStart}) async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: isStart
-          ? (filterStartDate ?? DateTime.now())
-          : (filterEndDate ?? DateTime.now()),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-    );
-
-    if (picked != null) {
-      setState(() {
-        if (isStart) filterStartDate = picked;
-        else filterEndDate = picked;
-      });
-
-      if (filterStartDate != null && filterEndDate != null) {
-        _loadFilteredData(filterStartDate!, filterEndDate!);
-      }
-    }
-  }
-
-  Widget _buildFieldBox(String label, dynamic value) {
-    final icon = fieldIcons[label];
-    final color = fieldColors[label] ?? Colors.grey;
-    final textColor = (color is MaterialColor) ? color.shade700 : color;
-
-    return SizedBox(
-      height: 90,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.5), width: 1.5),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            if (icon != null) Icon(icon, color: color, size: 22),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                "$label: $value",
-                style: TextStyle(
-                  color: textColor,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 15,
-                ),
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -283,64 +241,115 @@ class _FilterByDateState extends State<FilterByDate> {
         backgroundColor: const Color(0xFFEF474B),
         foregroundColor: Colors.white,
       ),
-      body: loading
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+
+      /// BODY
+      body: Column(
         children: [
+          const SizedBox(height: 14),
+
+          /// FILTER CARD
           Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                TextButton.icon(
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    backgroundColor: Colors.indigo,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 18, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black12,
+                    blurRadius: 6,
+                    offset: Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  /// FROM FIELD
+                  TextField(
+                    readOnly: true,
+                    onTap: () => pickDate(isStart: true),
+                    decoration: InputDecoration(
+                      labelText: "From",
+                      suffixIcon: Icon(Icons.calendar_today),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      hintText: filterStartDate == null
+                          ? "Select date"
+                          : displayFormat.format(filterStartDate!),
                     ),
                   ),
-                  onPressed: () => pickDate(isStart: true),
-                  icon: const Icon(Icons.date_range,
-                      size: 18, color: Colors.white),
-                  label: Text(
-                    filterStartDate != null
-                        ? "From: ${displayFormat.format(filterStartDate!)}"
-                        : "From: Select",
-                    style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                TextButton.icon(
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    backgroundColor: Colors.indigo,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 18, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(20),
+                  const SizedBox(height: 12),
+
+                  /// TO FIELD
+                  TextField(
+                    readOnly: true,
+                    onTap: () => pickDate(isStart: false),
+                    decoration: InputDecoration(
+                      labelText: "To",
+                      suffixIcon: Icon(Icons.calendar_month),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      hintText: filterEndDate == null
+                          ? "Select date"
+                          : displayFormat.format(filterEndDate!),
                     ),
                   ),
-                  onPressed: () => pickDate(isStart: false),
-                  icon: const Icon(Icons.date_range_outlined,
-                      size: 18, color: Colors.white),
-                  label: Text(
-                    filterEndDate != null
-                        ? "To: ${displayFormat.format(filterEndDate!)}"
-                        : "To: Select",
-                    style: const TextStyle(
-                        fontSize: 14, fontWeight: FontWeight.bold),
+
+                  const SizedBox(height: 14),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: _filter,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            padding: EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text(
+                            "Filter",
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: _reset,
+                          style: OutlinedButton.styleFrom(
+                            padding: EdgeInsets.symmetric(vertical: 14),
+                            side: BorderSide(color: Colors.grey),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: const Text("Reset"),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
 
+          const SizedBox(height: 14),
+
+          /// LIST
           Expanded(
-            child: cycles.isEmpty
-                ? const Center(child: Text("No cycles returned."))
+            child: loading
+                ? const Center(child: CircularProgressIndicator())
+                : cycles.isEmpty
+                ? const Center(child: Text("No data."))
                 : ListView.builder(
               padding: const EdgeInsets.all(16),
               itemCount: cycles.length,
@@ -353,67 +362,74 @@ class _FilterByDateState extends State<FilterByDate> {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
-                      BoxShadow(color: Colors.black12, blurRadius: 4),
+                      BoxShadow(
+                        color: Colors.black12,
+                        blurRadius: 4,
+                      ),
                     ],
                   ),
                   child: Theme(
-                    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                    data: Theme.of(context)
+                        .copyWith(dividerColor: Colors.transparent),
                     child: ExpansionTile(
-                      tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      tilePadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
                       childrenPadding: const EdgeInsets.all(16),
-                      title: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              c.start,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-
-                            const Icon(Icons.arrow_forward, size: 18),
-
-                            const SizedBox(width: 12),
-
-                            Text(
-                              c.end,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 15,
-                              ),
-                            ),
-                          ],
+                      title: Text(
+                        "${c.start} → ${c.end}",
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                       children: [
-                        LayoutBuilder(
-                          builder: (context, constraints) {
-                            final double itemWidth = (constraints.maxWidth - 12) / 2;
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children:
+                          fieldLabels.entries.map((entry) {
+                            final key = entry.key;
+                            final label = entry.value;
 
-                            return Wrap(
-                              spacing: 12,
-                              runSpacing: 12,
-                              children: fieldLabels.entries.map((entry) {
-                                final backendKey = entry.key;
-                                final label = entry.value;
+                            if (!c.values.containsKey(key)) {
+                              return const SizedBox.shrink();
+                            }
 
-                                if (!c.values.containsKey(backendKey)) {
-                                  return const SizedBox.shrink();
-                                }
+                            final val = c.values[key];
 
-                                final value = c.values[backendKey];
+                            final color =
+                                fieldColors[label] ?? Colors.grey;
+                            final icon = fieldIcons[label];
 
-                                return SizedBox(
-                                  width: itemWidth,
-                                  child: _buildFieldBox(label, value),
-                                );
-                              }).toList(),
+                            return Container(
+                              width:
+                              (MediaQuery.of(context).size.width -
+                                  60) /
+                                  2,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                borderRadius:
+                                BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: color.withOpacity(0.4),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  if (icon != null)
+                                    Icon(icon, color: color),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      "$label: $val",
+                                      maxLines: 3,
+                                      overflow:
+                                      TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             );
-                          },
+                          }).toList(),
                         ),
                       ],
                     ),

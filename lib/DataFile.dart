@@ -14,6 +14,7 @@ class UploadCSVPage extends StatefulWidget {
 
 class _UploadCSVPageState extends State<UploadCSVPage> {
   String? _filePath;
+  String? _fileName; // Dodajemo promenljivu za naziv fajla
   String? _statusMessage;
 
   @override
@@ -27,13 +28,12 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
     final lastFile = prefs.getString('last_uploaded_file');
     if (lastFile != null) {
       setState(() {
-        _filePath = lastFile;
+        _fileName = lastFile; // postavljamo naziv fajla
         _statusMessage = "Last uploaded file: $lastFile";
       });
     }
   }
 
-  // biranje CSV fajla i slanje direktno na backend sa header-ima
   Future<void> _pickAndUploadFile() async {
     setState(() {
       _statusMessage = null;
@@ -52,6 +52,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
 
         setState(() {
           _filePath = path;
+          _fileName = path.split('/').last; // odmah postavljamo naziv fajla
         });
 
         await _uploadCsvToBackend(path);
@@ -96,11 +97,9 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
       final request = http.MultipartRequest("POST", url);
       request.files.add(await http.MultipartFile.fromPath('file', file.path));
 
-      // Dodavanje header-a sa ID pacijenta i ID uredjaja
       request.headers.addAll({
         "Content-Type": "application/json",
         "Accept": "application/json",
-        //"pacijent_id": patientId.toString(),
         "pacijent": "1",
         "device": deviceId,
       });
@@ -109,14 +108,14 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
       final responseBody = await response.stream.bytesToString();
 
       if (response.statusCode == 200 || response.statusCode == 201) {
-        final fileName = file.path.split('/').last; // samo naziv fajla
-        final prefs = await SharedPreferences.getInstance();
+        final fileName = file.path.split('/').last;
         await prefs.setString('last_uploaded_file', fileName);
 
         setState(() {
-          _statusMessage = "CSV successfully uploaded!";
+          _fileName = fileName; // uvek prikazujemo naziv fajla
+          _statusMessage = "CSV '$fileName' successfully uploaded!";
         });
-      }else {
+      } else {
         setState(() {
           _statusMessage = "Error ${response.statusCode}: $responseBody";
         });
@@ -137,7 +136,7 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
           style: TextStyle(color: Colors.white),
         ),
         backgroundColor: const Color(0xFFEF474B),
-        iconTheme: const IconThemeData(color: Colors.white), // za ikone
+        iconTheme: const IconThemeData(color: Colors.white),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 30),
@@ -163,6 +162,13 @@ class _UploadCSVPageState extends State<UploadCSVPage> {
                 ),
               ),
               const SizedBox(height: 20),
+              if (_fileName != null) // Prikaz naziva fajla uvek
+                Text(
+                  "Selected file: $_fileName",
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w500),
+                ),
+              const SizedBox(height: 10),
               if (_statusMessage != null)
                 Container(
                   padding: const EdgeInsets.all(16),
