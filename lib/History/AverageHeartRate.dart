@@ -1,8 +1,9 @@
-import 'dart:io';
-import 'package:csv/csv.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:syncfusion_flutter_charts/charts.dart';
 import 'package:table_calendar/table_calendar.dart';
 
@@ -52,69 +53,61 @@ class _AverageHeartRatePageState extends State<AverageHeartRatePage>
       _onTabChanged(_tabController.index);
     });
 
-    _loadStoredCSV();
+    _loadFromBackend();
   }
 
-  Future<void> _loadStoredCSV() async {
+  Future<void> _loadFromBackend() async {
     try {
-      final directory = await getApplicationDocumentsDirectory();
-      final csvFiles = directory
-          .listSync()
-          .whereType<File>()
-          .where((file) => file.path.endsWith('.csv'))
-          .toList();
+      final prefs = await SharedPreferences.getInstance();
+      final patientId = prefs.getString('patientId') ?? '1';
+      final deviceInfo = DeviceInfoPlugin();
+      final androidInfo = await deviceInfo.androidInfo;
+      final deviceId = androidInfo.id;
 
-      if (csvFiles.isEmpty) {
-        _showError("No CSV file found in local storage.");
-        return;
+      final url =
+      Uri.parse("https://dev.intelheart.unic.kg.ac.rs:82/api/app/data/all");
+
+      final res = await http.get(url, headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "pacijent": patientId.toString(),
+        "device": deviceId,
+      });
+
+      if (res.statusCode != 200 && res.statusCode != 201) {
+        throw Exception("Server je vratio status: ${res.statusCode}");
       }
 
-      final file = csvFiles.first;
-      final csvContent = await file.readAsString();
-      final rows = const CsvToListConverter().convert(csvContent, eol: '\n');
-
-      final header = rows.first.map((e) => e.toString().trim()).toList();
-      final startIndex = header.indexOf('Cycle start time');
-      final tempIndex = header.indexOf('Average HR (bpm)');
-
-      if (startIndex == -1 || tempIndex == -1) {
-        _showError("Missing required columns in CSV.");
-        return;
-      }
-
-      final data = rows
-          .skip(1)
-          .where(
-            (row) =>
-        row.length > tempIndex &&
-            row.length > startIndex &&
-            row[tempIndex] != null &&
-            row[startIndex] != null,
-      )
-          .map((row) {
-        DateTime parsedDate = csvDateFormat.parse(
-          row[startIndex].toString(),
-        );
-        double temp = double.tryParse(row[tempIndex].toString()) ?? 0;
+      final List<dynamic> jsonList = jsonDecode(res.body);
+      final data = jsonList
+          .where((item) =>
+      item.containsKey("cycle_start_time") &&
+          item.containsKey("average_hr_bpm") &&
+          item["average_hr_bpm"] != null &&
+          item["cycle_start_time"] != null)
+          .map((item) {
+        String raw = item["cycle_start_time"].toString().replaceAll(" ", "T");
+        DateTime parsedDate = DateTime.parse(raw);
+        double temp =
+            double.tryParse(item["average_hr_bpm"].toString()) ?? 0;
         return AverageHeartRateEntry(
-          startDate: parsedDate,
-          averageHeartRate: temp,
-        );
-      })
-          .toList();
+            startDate: parsedDate, averageHeartRate: temp);
+      }).toList();
 
       data.sort((a, b) => a.startDate.compareTo(b.startDate));
 
-      setState(() {
-        entries = data;
-        currentWindowEnd = _getEndOfWeek(DateTime.now());
-      });
-
-      _filterLastWeek();
+      if (mounted) {
+        setState(() {
+          entries = data;
+          currentWindowEnd = _getEndOfWeek(DateTime.now());
+          _filterLastWeek();
+        });
+      }
     } catch (e) {
-      _showError("Error reading CSV file: $e");
+      _showError("Greška pri učitavanju podataka sa backenda: $e");
     }
   }
+
 
   void _onTabChanged(int index) {
     switch (index) {
