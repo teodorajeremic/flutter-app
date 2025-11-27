@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 
 class UploadVoiceInputsPage extends StatefulWidget {
   const UploadVoiceInputsPage({super.key});
@@ -11,15 +13,11 @@ class UploadVoiceInputsPage extends StatefulWidget {
 }
 
 class _UploadVoiceInputsPageState extends State<UploadVoiceInputsPage> {
-  // Lista od 5 fajlova, inicijalno null
   List<File?> selectedFiles = List<File?>.filled(5, null, growable: false);
   bool isSending = false;
 
-  // Pick a single file for a specific index
   Future<void> pickFile(int index) async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.audio,
-    );
+    final result = await FilePicker.platform.pickFiles(type: FileType.audio);
 
     if (result != null && result.files.single.path != null) {
       setState(() {
@@ -28,32 +26,113 @@ class _UploadVoiceInputsPageState extends State<UploadVoiceInputsPage> {
     }
   }
 
-  // Upload all files
   Future<void> uploadFiles() async {
-    // Provera da li su svi fajlovi izabrani
-    if (selectedFiles.any((file) => file == null)) {
+    if (selectedFiles.any((f) => f == null)) {
       _showSnack("Izaberi svih 5 fajlova pre slanja.");
       return;
     }
 
     setState(() => isSending = true);
 
-    final uri = Uri.parse("https://tvoj-server.com/api/upload-voice"); // PROMENI OVO
-    var request = http.MultipartRequest("POST", uri);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final patientId = prefs.getInt('patient_id');
 
-    for (int i = 0; i < selectedFiles.length; i++) {
-      final file = selectedFiles[i]!;
-      request.files.add(
-        await http.MultipartFile.fromPath("file${i + 1}", file.path),
+      final deviceInfo = DeviceInfoPlugin();
+      String deviceId = "";
+
+      if (Theme.of(context).platform == TargetPlatform.android) {
+        final androidInfo = await deviceInfo.androidInfo;
+        deviceId = androidInfo.id ?? "";
+      } else if (Theme.of(context).platform == TargetPlatform.iOS) {
+        final iosInfo = await deviceInfo.iosInfo;
+        deviceId = iosInfo.identifierForVendor ?? "";
+      }
+
+      // POST upload
+      final uploadUri = Uri.parse(
+        "https://dev.intelheart.unic.kg.ac.rs:82/api/app/voice",
       );
+
+      var request = http.MultipartRequest("POST", uploadUri);
+      request.headers.addAll({
+        "Accept": "application/json",
+        "pacijent": "1",
+        "device": deviceId,
+      });
+
+      for (final file in selectedFiles) {
+        request.files.add(
+          await http.MultipartFile.fromPath("voices[]", file!.path),
+        );
+      }
+
+      final streamedResponse = await request.send();
+      final uploadResponseBody =
+      await streamedResponse.stream.bytesToString();
+
+      if (streamedResponse.statusCode != 200 &&
+          streamedResponse.statusCode != 201) {
+        throw Exception(
+          "Server error (${streamedResponse.statusCode}):\n$uploadResponseBody",
+        );
+      }
+
+      // // Nakon uspešnog POST → GET rezultat
+      // final resultUri = Uri.parse(
+      //   "https://dev.intelheart.unic.kg.ac.rs:82/api/app/voice",
+      // );
+      //
+      // final resultResponse = await http.get(
+      //   resultUri,
+      //   headers: {
+      //     "Accept": "application/json",
+      //     "pacijent": "1",
+      //     "device": deviceId,
+      //   },
+      // );
+      //
+      // setState(() => isSending = false);
+      //
+      // if (resultResponse.statusCode == 200) {
+      //   _showResultDialog(resultResponse.body);
+      //   print(resultResponse.body);
+      // } else {
+      //   _showResultDialog(
+      //     "Greška pri dobijanju rezultata (${resultResponse.statusCode}):\n${resultResponse.body}",
+      //   );
+      // }
+      // Nakon uspešnog POST → GET rezultat
+      final resultUri = Uri.parse(
+        "https://dev.intelheart.unic.kg.ac.rs:82/api/app/voice",
+      );
+
+      final resultResponse = await http.get(
+        resultUri,
+        headers: {
+          "Accept": "application/json",
+          "pacijent": "1",
+          "device": deviceId,
+        },
+      );
+
+      // spinner
+      await Future.delayed(const Duration(seconds: 10));
+
+      setState(() => isSending = false);
+
+      if (resultResponse.statusCode == 200) {
+        _showResultDialog(resultResponse.body);
+        print(resultResponse.body);
+      } else {
+        _showResultDialog(
+          "Greška pri dobijanju rezultata (${resultResponse.statusCode}):\n${resultResponse.body}",
+        );
+      }
+    } catch (e) {
+      setState(() => isSending = false);
+      _showResultDialog("Došlo je do greške:\n\n$e");
     }
-
-    var response = await request.send();
-    var body = await response.stream.bytesToString();
-
-    setState(() => isSending = false);
-
-    _showResultDialog(body);
   }
 
   void _showSnack(String msg) {
@@ -66,7 +145,7 @@ class _UploadVoiceInputsPageState extends State<UploadVoiceInputsPage> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text("Rezultat analize"),
+        title: const Text("Rezultat"),
         content: Text(
           result,
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -83,17 +162,19 @@ class _UploadVoiceInputsPageState extends State<UploadVoiceInputsPage> {
 
   Widget _buildFileButton(int index) {
     final file = selectedFiles[index];
+
     return ElevatedButton.icon(
       onPressed: () => pickFile(index),
       icon: const Icon(Icons.upload_file),
-      label: Text(file == null ? "Izaberi fajl ${index + 1}" : file.path.split('/').last),
+      label: Text(
+        file == null ? "Izaberi fajl ${index + 1}" : file.path.split('/').last,
+      ),
       style: ElevatedButton.styleFrom(
         padding: const EdgeInsets.symmetric(vertical: 14),
       ),
     );
   }
 
-  // Full-screen loading overlay
   Widget _buildLoadingOverlay() {
     return Container(
       color: Colors.black.withOpacity(0.4),
@@ -121,14 +202,11 @@ class _UploadVoiceInputsPageState extends State<UploadVoiceInputsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // 5 dugmadi
                 for (int i = 0; i < 5; i++) ...[
                   _buildFileButton(i),
                   const SizedBox(height: 10),
                 ],
-
                 const SizedBox(height: 20),
-
                 ElevatedButton(
                   onPressed: isSending ? null : uploadFiles,
                   style: ElevatedButton.styleFrom(
