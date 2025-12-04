@@ -34,15 +34,13 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
     return day;
   }
 
-  DateTime? currentWindowEnd;
   late TabController _tabController;
 
-  final DateFormat csvDateFormat = DateFormat('dd-MM-yy HH:mm');
-  final DateFormat displayDateFormat = DateFormat('MMM dd, yyyy');
-
-  // For calendar focused days in 30 days and all tabs
+  DateTime? currentWindowEnd;
   DateTime _focusedDay30 = DateTime.now();
   DateTime _focusedDayAll = DateTime.now();
+
+  final DateFormat displayDateFormat = DateFormat('MMM dd, yyyy');
 
   @override
   void initState() {
@@ -115,12 +113,10 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
         _filterLastWeek();
         break;
       case 1:
-        currentWindowEnd = null;
         _focusedDay30 = DateTime.now();
-        _filterLast30Days();
+        _filterLast30DaysFromFocused();
         break;
       case 2:
-        currentWindowEnd = null;
         _focusedDayAll = DateTime.now();
         _showAllData();
         break;
@@ -152,15 +148,12 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
     });
   }
 
-  void _filterLast30Days() {
-    final now = DateTime.now();
-    final past30Days = now.subtract(const Duration(days: 29));
+  void _filterLast30DaysFromFocused() {
+    final end = _focusedDay30;
+    final start = end.subtract(const Duration(days: 29));
     setState(() {
       filteredEntries = entries
-          .where(
-            (e) =>
-        !e.startDate.isBefore(past30Days) && !e.startDate.isAfter(now),
-      )
+          .where((e) => !e.startDate.isBefore(start) && !e.startDate.isAfter(end))
           .toList();
     });
   }
@@ -191,6 +184,22 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
     });
   }
 
+  void _goPrevious30Days() {
+    setState(() {
+      _focusedDay30 = _focusedDay30.subtract(const Duration(days: 30));
+      _filterLast30DaysFromFocused();
+    });
+  }
+
+  void _goNext30Days() {
+    final now = DateTime.now();
+    if (_focusedDay30.add(const Duration(days: 30)).isAfter(now)) return;
+    setState(() {
+      _focusedDay30 = _focusedDay30.add(const Duration(days: 30));
+      _filterLast30DaysFromFocused();
+    });
+  }
+
   String _getWeekRangeText() {
     switch (_tabController.index) {
       case 0:
@@ -198,9 +207,9 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
         final startOfWeek = currentWindowEnd!.subtract(const Duration(days: 6));
         return '${displayDateFormat.format(startOfWeek)} - ${displayDateFormat.format(currentWindowEnd!)}';
       case 1:
-        final now = DateTime.now();
-        final past30Days = now.subtract(const Duration(days: 29));
-        return '${displayDateFormat.format(past30Days)} - ${displayDateFormat.format(now)}';
+        final end = _focusedDay30;
+        final start = end.subtract(const Duration(days: 29));
+        return '${displayDateFormat.format(start)} - ${displayDateFormat.format(end)}';
       case 2:
         if (entries.isEmpty) return '';
         final first = entries.first.startDate;
@@ -262,24 +271,28 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
     );
   }
 
-  Widget buildCalendarView({required DateTime firstDay, required DateTime lastDay, required DateTime focusedDay, required ValueChanged<DateTime> onDayFocused}) {
-    Map<DateTime, double> heartRateMap = {
+  Widget buildCalendarView(
+      {required DateTime firstDay,
+        required DateTime lastDay,
+        required DateTime focusedDay,
+        required ValueChanged<DateTime> onDayFocused}) {
+    Map<DateTime, double> bloodOxygenMap = {
       for (var entry in filteredEntries)
         DateTime(entry.startDate.year, entry.startDate.month, entry.startDate.day):
         entry.BloodOxygen,
     };
 
     return Transform.translate(
-      offset: const Offset(0, -10), // Move calendar up by 10 pixels
+      offset: const Offset(0, -10),
       child: TableCalendar(
         firstDay: firstDay,
         lastDay: lastDay,
-        focusedDay: focusedDay,
-        startingDayOfWeek: StartingDayOfWeek.monday, // <-- Set Monday as first day
+        focusedDay: _focusedDay30,
+        startingDayOfWeek: StartingDayOfWeek.monday,
         headerStyle: const HeaderStyle(
           formatButtonVisible: false,
           titleCentered: true,
-          headerPadding: EdgeInsets.zero, // Remove header padding to reduce gap
+          headerPadding: EdgeInsets.zero,
           titleTextStyle: TextStyle(
             fontWeight: FontWeight.bold,
             fontSize: 16,
@@ -301,7 +314,7 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
         ),
         calendarBuilders: CalendarBuilders(
           defaultBuilder: (context, day, focusedDay) {
-            double? hr = heartRateMap[DateTime(day.year, day.month, day.day)];
+            double? hr = bloodOxygenMap[DateTime(day.year, day.month, day.day)];
             return Container(
               margin: const EdgeInsets.all(2),
               decoration: BoxDecoration(
@@ -314,27 +327,22 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      "${day.day}",
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
+                    Text("${day.day}",
+                        style: const TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 2),
-                    Text(
-                      hr != null && hr > 0 ? hr.toStringAsFixed(0) : "--",
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: hr != null && hr > 0
-                            ? Colors.deepOrangeAccent
-                            : Colors.grey,
-                      ),
-                    ),
+                    Text(hr != null && hr > 0 ? hr.toStringAsFixed(0) : "--",
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: hr != null && hr > 0
+                              ? Colors.deepOrangeAccent
+                              : Colors.grey,
+                        )),
                   ],
                 ),
               ),
             );
           },
         ),
-        onPageChanged: onDayFocused,
       ),
     );
   }
@@ -345,13 +353,16 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
     final is30DaysView = _tabController.index == 1;
     final isAllView = _tabController.index == 2;
 
-    DateTime firstDateAll = entries.isEmpty
-        ? DateTime.now().subtract(const Duration(days: 365))
-        : entries.first.startDate;
-    DateTime lastDateAll = entries.isEmpty ? DateTime.now() : entries.last.startDate;
+    // Clamp za Last 30 Days
+    DateTime firstDay30 = DateTime.now().subtract(const Duration(days: 29));
+    DateTime lastDay30 = DateTime.now();
+    DateTime focusedDay30Clamped = clamp(_focusedDay30, firstDay30, lastDay30);
 
-    // Clamp focusedDayAll so it stays inside valid range
-    _focusedDayAll = clamp(_focusedDayAll, firstDateAll, lastDateAll);
+    // Clamp za All
+    DateTime firstDayAll = DateTime.now().subtract(Duration(days: 365));
+    DateTime lastDayAll = DateTime.now().add(Duration(days: 365));
+
+    //DateTime _focusedDayAll = DateTime.now();
 
     return DefaultTabController(
       length: 3,
@@ -386,6 +397,7 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
             child: Column(
               children: [
                 const SizedBox(height: 10),
+                // Strelice i tekst opsega
                 SizedBox(
                   height: 36,
                   child: Row(
@@ -394,35 +406,35 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
                       if (isWeekView)
                         GestureDetector(
                           onTap: _goPreviousWeek,
-                          child: const Icon(
-                            Icons.arrow_back,
-                            size: 20,
-                            color: Colors.black54,
-                          ),
+                          child: const Icon(Icons.arrow_back, size: 20, color: Colors.black54),
+                        )
+                      else if (is30DaysView)
+                        GestureDetector(
+                          onTap: _goPrevious30Days,
+                          child: const Icon(Icons.arrow_back, size: 20, color: Colors.black54),
                         ),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 8.0),
                         child: Text(
                           _getWeekRangeText(),
-                          style: const TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                       ),
                       if (isWeekView)
                         GestureDetector(
                           onTap: _goNextWeek,
-                          child: const Icon(
-                            Icons.arrow_forward,
-                            size: 20,
-                            color: Colors.black54,
-                          ),
+                          child: const Icon(Icons.arrow_forward, size: 20, color: Colors.black54),
+                        )
+                      else if (is30DaysView)
+                        GestureDetector(
+                          onTap: _goNext30Days,
+                          child: const Icon(Icons.arrow_forward, size: 20, color: Colors.black54),
                         ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 15),
+                // Grafikon
                 SizedBox(
                   height: 250,
                   child: SfCartesianChart(
@@ -445,8 +457,7 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
                       SplineAreaSeries<BloodOxygenEntry, DateTime>(
                         dataSource: filteredEntries,
                         xValueMapper: (e, _) => e.startDate,
-                        yValueMapper: (e, _) =>
-                        e.BloodOxygen == 0 ? null : e.BloodOxygen,
+                        yValueMapper: (e, _) => e.BloodOxygen == 0 ? null : e.BloodOxygen,
                         color: Colors.deepOrangeAccent.withOpacity(0.5),
                         borderColor: Colors.deepOrangeAccent,
                         borderWidth: 2,
@@ -461,8 +472,8 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
                     ],
                   ),
                 ),
-                Divider(height: 0),
-                SizedBox(height: 20),
+                const Divider(height: 0),
+                const SizedBox(height: 20),
                 if (filteredEntries.isEmpty)
                   const Center(
                     child: Text(
@@ -474,23 +485,24 @@ class _BloodOxygenPageState extends State<BloodOxygenPage>
                   buildWeekView()
                 else if (is30DaysView)
                     buildCalendarView(
-                      firstDay: DateTime.now().subtract(const Duration(days: 29)),
-                      lastDay: DateTime.now(),
-                      focusedDay: _focusedDay30,
+                      firstDay: firstDayAll,
+                      lastDay: lastDayAll,
+                      focusedDay: _focusedDayAll,
                       onDayFocused: (focusedDay) {
                         setState(() {
-                          _focusedDay30 = focusedDay;
+                          _focusedDayAll = clamp(focusedDay, firstDayAll, lastDayAll);
+                          //_filterLast30DaysFromFocused();
                         });
                       },
                     )
                   else if (isAllView)
                       buildCalendarView(
-                        firstDay: firstDateAll,
-                        lastDay: lastDateAll,
+                        firstDay: firstDayAll,
+                        lastDay: lastDayAll,
                         focusedDay: _focusedDayAll,
                         onDayFocused: (focusedDay) {
                           setState(() {
-                            _focusedDayAll = focusedDay;
+                            _focusedDayAll = clamp(focusedDay, firstDayAll, lastDayAll);
                           });
                         },
                       ),

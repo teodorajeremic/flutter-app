@@ -36,8 +36,6 @@ class _EnergyBurnedPageState extends State<EnergyBurnedPage>
 
   DateTime? currentWindowEnd;
   late TabController _tabController;
-
-  final DateFormat csvDateFormat = DateFormat('dd-MM-yy HH:mm');
   final DateFormat displayDateFormat = DateFormat('MMM dd, yyyy');
 
   // For calendar focused days in 30 days and all tabs
@@ -116,12 +114,10 @@ class _EnergyBurnedPageState extends State<EnergyBurnedPage>
         _filterLastWeek();
         break;
       case 1:
-        currentWindowEnd = null;
         _focusedDay30 = DateTime.now();
-        _filterLast30Days();
+        _filterLast30DaysFromFocused();
         break;
       case 2:
-        currentWindowEnd = null;
         _focusedDayAll = DateTime.now();
         _showAllData();
         break;
@@ -153,15 +149,12 @@ class _EnergyBurnedPageState extends State<EnergyBurnedPage>
     });
   }
 
-  void _filterLast30Days() {
-    final now = DateTime.now();
-    final past30Days = now.subtract(const Duration(days: 29));
+  void _filterLast30DaysFromFocused() {
+    final end = _focusedDay30;
+    final start = end.subtract(const Duration(days: 29));
     setState(() {
       filteredEntries = entries
-          .where(
-            (e) =>
-        !e.startDate.isBefore(past30Days) && !e.startDate.isAfter(now),
-      )
+          .where((e) => !e.startDate.isBefore(start) && !e.startDate.isAfter(end))
           .toList();
     });
   }
@@ -192,6 +185,22 @@ class _EnergyBurnedPageState extends State<EnergyBurnedPage>
     });
   }
 
+  void _goPrevious30Days() {
+    setState(() {
+      _focusedDay30 = _focusedDay30.subtract(const Duration(days: 30));
+      _filterLast30DaysFromFocused();
+    });
+  }
+
+  void _goNext30Days() {
+    final now = DateTime.now();
+    if (_focusedDay30.add(const Duration(days: 30)).isAfter(now)) return;
+    setState(() {
+      _focusedDay30 = _focusedDay30.add(const Duration(days: 30));
+      _filterLast30DaysFromFocused();
+    });
+  }
+
   String _getWeekRangeText() {
     switch (_tabController.index) {
       case 0:
@@ -199,9 +208,9 @@ class _EnergyBurnedPageState extends State<EnergyBurnedPage>
         final startOfWeek = currentWindowEnd!.subtract(const Duration(days: 6));
         return '${displayDateFormat.format(startOfWeek)} - ${displayDateFormat.format(currentWindowEnd!)}';
       case 1:
-        final now = DateTime.now();
-        final past30Days = now.subtract(const Duration(days: 29));
-        return '${displayDateFormat.format(past30Days)} - ${displayDateFormat.format(now)}';
+        final end = _focusedDay30;
+        final start = end.subtract(const Duration(days: 29));
+        return '${displayDateFormat.format(start)} - ${displayDateFormat.format(end)}';
       case 2:
         if (entries.isEmpty) return '';
         final first = entries.first.startDate;
@@ -263,8 +272,12 @@ class _EnergyBurnedPageState extends State<EnergyBurnedPage>
     );
   }
 
-  Widget buildCalendarView({required DateTime firstDay, required DateTime lastDay, required DateTime focusedDay, required ValueChanged<DateTime> onDayFocused}) {
-    Map<DateTime, double> heartRateMap = {
+  Widget buildCalendarView(
+      {required DateTime firstDay,
+        required DateTime lastDay,
+        required DateTime focusedDay,
+        required ValueChanged<DateTime> onDayFocused}) {
+    Map<DateTime, double> energyBurnedMap = {
       for (var entry in filteredEntries)
         DateTime(entry.startDate.year, entry.startDate.month, entry.startDate.day):
         entry.EnergyBurned,
@@ -275,7 +288,7 @@ class _EnergyBurnedPageState extends State<EnergyBurnedPage>
       child: TableCalendar(
         firstDay: firstDay,
         lastDay: lastDay,
-        focusedDay: focusedDay,
+        focusedDay: _focusedDay30,
         startingDayOfWeek: StartingDayOfWeek.monday, // <-- Set Monday as first day
         headerStyle: const HeaderStyle(
           formatButtonVisible: false,
@@ -302,7 +315,7 @@ class _EnergyBurnedPageState extends State<EnergyBurnedPage>
         ),
         calendarBuilders: CalendarBuilders(
           defaultBuilder: (context, day, focusedDay) {
-            double? hr = heartRateMap[DateTime(day.year, day.month, day.day)];
+            double? hr = energyBurnedMap[DateTime(day.year, day.month, day.day)];
             return Container(
               margin: const EdgeInsets.all(2),
               decoration: BoxDecoration(
@@ -335,7 +348,6 @@ class _EnergyBurnedPageState extends State<EnergyBurnedPage>
             );
           },
         ),
-        onPageChanged: onDayFocused,
       ),
     );
   }
@@ -353,6 +365,9 @@ class _EnergyBurnedPageState extends State<EnergyBurnedPage>
 
     // Clamp focusedDayAll so it stays inside valid range
     _focusedDayAll = clamp(_focusedDayAll, firstDateAll, lastDateAll);
+
+    DateTime firstDayAll = DateTime.now().subtract(Duration(days: 365));
+    DateTime lastDayAll = DateTime.now().add(Duration(days: 365));
 
     return DefaultTabController(
       length: 3,
@@ -400,7 +415,12 @@ class _EnergyBurnedPageState extends State<EnergyBurnedPage>
                             size: 20,
                             color: Colors.black54,
                           ),
-                        ),
+                        )
+                      else if (is30DaysView)
+                        GestureDetector(
+                        onTap: _goPrevious30Days,
+                        child: const Icon(Icons.arrow_back, size: 20, color: Colors.black54),
+                      ),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 8.0),
                         child: Text(
@@ -419,6 +439,11 @@ class _EnergyBurnedPageState extends State<EnergyBurnedPage>
                             size: 20,
                             color: Colors.black54,
                           ),
+                        )
+                      else if (is30DaysView)
+                        GestureDetector(
+                          onTap: _goNext30Days,
+                          child: const Icon(Icons.arrow_forward, size: 20, color: Colors.black54),
                         ),
                     ],
                   ),
@@ -475,23 +500,24 @@ class _EnergyBurnedPageState extends State<EnergyBurnedPage>
                   buildWeekView()
                 else if (is30DaysView)
                     buildCalendarView(
-                      firstDay: DateTime.now().subtract(const Duration(days: 29)),
-                      lastDay: DateTime.now(),
-                      focusedDay: _focusedDay30,
-                      onDayFocused: (focusedDay) {
-                        setState(() {
-                          _focusedDay30 = focusedDay;
-                        });
-                      },
+                      firstDay: firstDayAll,
+                      lastDay: lastDayAll,
+                      focusedDay: _focusedDayAll,
+                        onDayFocused: (focusedDay) {
+                          setState(() {
+                            _focusedDayAll = clamp(focusedDay, firstDayAll, lastDayAll);
+                            //_filterLast30DaysFromFocused();
+                          });
+                        }
                     )
                   else if (isAllView)
                       buildCalendarView(
-                        firstDay: firstDateAll,
-                        lastDay: lastDateAll,
+                        firstDay: firstDayAll,
+                        lastDay: lastDayAll,
                         focusedDay: _focusedDayAll,
                         onDayFocused: (focusedDay) {
                           setState(() {
-                            _focusedDayAll = focusedDay;
+                            _focusedDayAll = clamp(focusedDay, firstDayAll, lastDayAll);
                           });
                         },
                       ),
